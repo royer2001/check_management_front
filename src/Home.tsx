@@ -2,13 +2,47 @@ import { useState } from "react";
 import { FaTimes, FaCheck, FaSearch, FaTable, FaFileExport } from "react-icons/fa"
 import axios from "axios";
 
+
+
 export default function ChequeForm() {
+
+  const PaginationNumbers = () => {
+    const { total_pages, current_page } = pagination;
+
+    // Generar un array con los números de página
+    const pageNumbers = Array.from({ length: total_pages }, (_, i) => i + 1);
+
+    return (
+      <div className="flex justify-center space-x-2 mt-4">
+        {pageNumbers.map((page) => (
+          <button
+            key={page}
+            onClick={() => handleSearch(page)}  // Pasar el número de página
+            className={`px-3 py-1 rounded-md ${page === current_page
+                ? "bg-blue-500 text-white"
+                : "bg-gray-200 hover:bg-gray-300"
+              }`}
+            disabled={page === current_page}
+          >
+            {page}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
 
   const [file, setFile] = useState<File | null>(null);
   const [fileId, setFileId] = useState<string | null>(null);
   const [data, setData] = useState<any[]>([]);
-  const [pagination, setPagination] = useState<{ next: string | null; previous: string | null }>({ next: null, previous: null });
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [pagination, setPagination] = useState({
+    next: null,
+    previous: null,
+    total_pages: 1,  // Número total de páginas
+    current_page: 1,  // Página actual
+  });
 
   const [form, setForm] = useState({
     chequeNumber: "",
@@ -16,8 +50,37 @@ export default function ChequeForm() {
     amount: "",
     amountInWords: "",
     date: "",
-    place: "LA UNIÓN,"
+    place: "LA UNIÓN"
   });
+
+  const handleSearch = async (page: number | null = null) => {
+    try {
+      // Construir la URL con el parámetro de página si está presente
+      let url = 'http://127.0.0.1:8000/api/search-data/';
+      if (page !== null) {
+        url += `?page=${page}`;
+      }
+
+      // Realizar la solicitud POST con el término de búsqueda
+      const response = await axios.post(url, {
+        file_id: fileId,  // fileId es el ID del archivo subido
+        search_term: searchTerm.trim(),
+      });
+
+      // Actualizar el estado con los datos y la paginación
+      setData(response.data.results);
+      setPagination({
+        next: response.data.next,
+        previous: response.data.previous,
+        total_pages: response.data.total_pages,  // Número total de páginas
+        current_page: response.data.current_page,  // Página actual
+      });
+
+    } catch (error) {
+      console.error('Error al buscar datos:', error);
+    }
+  };
+
 
   const generatePDF = async () => {
     const pdfData = {
@@ -36,7 +99,7 @@ export default function ChequeForm() {
           responseType: "blob", // Indicar que la respuesta es un archivo binario
         }
       );
-  
+
       // Crear una URL para el PDF
       const url = window.URL.createObjectURL(response.data); // Usar response.data directamente
       setPdfUrl(url); // Almacenar la URL en el estado
@@ -82,29 +145,62 @@ export default function ChequeForm() {
       setPagination({
         next: paginationResponse.data.next,
         previous: paginationResponse.data.previous,
+        total_pages: paginationResponse.data.total_pages,  // Número total de páginas
+        current_page: paginationResponse.data.current_page,  // Página actual
       });
     } catch (error) {
       console.error("Error uploading file:", error);
     }
   };
 
-  const handlePagination = async (url: string | null) => {
-    if (!url || !fileId) {
-      console.error("No hay URL de paginación o file_id.");
+  const handlePagination = async (url: string | null, page: number | null = null) => {
+    if (!fileId) {
+      console.error("No hay file_id.");
       return;
     }
 
     try {
-      const response = await axios.post(url, { file_id: fileId });
+      const response = await axios.post(url || `http://127.0.0.1:8000/api/search-data/`, {
+        file_id: fileId,
+        search_term: searchTerm,
+        page: page,  // Página específica a la que navegar
+      });
+
       setData(response.data.results);
       setPagination({
         next: response.data.next,
         previous: response.data.previous,
+        total_pages: response.data.total_pages,  // Actualizar el número total de páginas
+        current_page: response.data.current_page,  // Actualizar la página actual
       });
     } catch (error) {
       console.error("Error fetching paginated data:", error);
     }
   };
+
+  const searchByChequeNumber = async () => {
+    try {
+
+      console.log(form.chequeNumber)
+      const response = await axios.post("http://127.0.0.1:8000/api/search-by-check-number/", {
+        cheque_number: form.chequeNumber.trim(),
+        file_id: fileId,
+      });
+
+      console.info("Respuesta de búsqueda por número de cheque:", response.data);
+
+      setForm({
+        ...form,
+        chequeNumber: response.data.numero_cheque,
+        recipient: response.data.beneficiario,
+        amount: response.data.importe_soles,
+        date: response.data.fecha,
+        amountInWords: response.data.amount_in_letters,
+      });
+    } catch (error) {
+      console.error("Error al buscar por número de cheque:", error);
+    }
+  };  
 
   const handleSelect = async (item) => {
 
@@ -118,7 +214,7 @@ export default function ChequeForm() {
       recipient: item.beneficiario,
       amount: item.importe_soles,
       date: item.fecha,
-      amountInWords: amountInWords.data.amount_letters,
+      amountInWords: amountInWords.data.amount_in_letters,
     });
     toggleModal();
   };
@@ -171,7 +267,7 @@ export default function ChequeForm() {
                     className="mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring focus:ring-blue-300"
                   />
                 </div>
-                <button className="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">
+                <button type="button" onClick={() => searchByChequeNumber()} className="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">
                   <FaSearch className="inline-block mr-2" />
                   BUSCAR
                 </button>
@@ -211,12 +307,12 @@ export default function ChequeForm() {
                           <input
                             type="text"
                             name="chequeNumber"
-                            value={form.chequeNumber}
-                            onChange={(e) => setForm({ ...form, chequeNumber: e.target.value })}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             className="mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring focus:ring-blue-300"
                           />
                         </div>
-                        <button className="self-end bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">
+                        <button type="button" onClick={() => handleSearch()} className="self-end bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">
                           <FaSearch className="inline-block mr-2" />
                           BUSCAR
                         </button>
@@ -258,6 +354,7 @@ export default function ChequeForm() {
                         >
                           Anterior
                         </button>
+                        <PaginationNumbers />
                         <button
                           type="button"
                           onClick={() => handlePagination(pagination.next)}
@@ -267,6 +364,7 @@ export default function ChequeForm() {
                         >
                           Siguiente
                         </button>
+
                       </div>
 
 
@@ -352,7 +450,7 @@ export default function ChequeForm() {
               <h2 className="text-xl font-bold mb-2 text-left">Cheque</h2>
               {pdfUrl ? (<iframe
                 src={pdfUrl}
-                className="w-full h-dvh border rounded-md"
+                className="w-full h-100 border rounded-md"
                 title="PDF Viewer"
               ></iframe>) : (
                 <p className="text-center text-lg text-gray-400">No hay PDF generado</p>
